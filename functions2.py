@@ -31,8 +31,8 @@ def nbr(polygon, start_time, end_time):
     res = cube_nbr.save_result(format="GTIFF")
     res_png = cube_nbr.save_result(format="PNG")
 
-    res_png.download('nbr_example.png', format='PNG')
-    res.download('nbr_example.tiff', format='GTIFF')
+    res_png.download('nbr_example.png')
+    res.download('nbr_example.tiff')
     LCE.plot_result('nbr_example.tiff', 5)
 
 
@@ -62,8 +62,8 @@ def ndvi(polygon, start_time, end_time):
     res = cube_nbr.save_result(format="GTIFF")
     res_png = cube_nbr.save_result(format="PNG")
 
-    res_png.download('ndvi_example.png', format='PNG')
-    res.download('ndvi_example.tiff', format='GTIFF')
+    res_png.download('ndvi_example.png')
+    res.download('ndvi_example.tiff')
     LCE.plot_result('ndvi_example.tiff', 5)
 
 
@@ -95,7 +95,7 @@ def tcc(polygon, start_time, end_time):
         "blue": "B2"
     })
 
-    res_png.download('tcc_example.png', format='PNG')
+    res_png.download('tcc_example.png')
     BCET.plot_input('tcc_example.nc')
 
 
@@ -127,7 +127,7 @@ def fcc(polygon, start_time, end_time):
         "blue": "B2"
     })
 
-    res_png.download('fcc_example.png', format='PNG')
+    res_png.download('fcc_example.png')
     BCET.plot_input('fcc_example.nc')
 
 
@@ -205,7 +205,7 @@ def tcc_masked(polygon, start_time, end_time):
         "blue": "B2"
     })
 
-    res_png.download('tcc_masked_example.png', format='PNG')
+    res_png.download('tcc_masked_example.png')
     BCET.plot_bcet('tcc_masked_example_cdf.nc')
 
 
@@ -241,5 +241,5 @@ def fcc_masked(polygon, start_time, end_time):
         "blue": "B2"
     })
 
-    res_png.download('fcc_masked_example.png', format='PNG')
+    res_png.download('fcc_masked_example.png')
     BCET.plot_bcet('fcc_masked_example.nc')
