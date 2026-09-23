@@ -37,6 +37,12 @@ cd <repository_name>
 * Install dependencies
 ```
 pip install -r requirements.txt
+
+```
+* Install dependencies
+```
+Register a CDSE account https://dataspace.copernicus.eu
+
 ```
 * Run the Project
 ```
@@ -47,3 +53,4 @@ jupyter notebook run.ipynb
 ## Authors
 
 Imran Idham Sabki
+Hariz Imzan
