@@ -17,7 +17,7 @@ ROOT = Path(tempfile.gettempdir()) / 'eo-explorer-results'
 TTL = 3600
 
 
-def validate_request(geometry, start, end, products):
+def validate_request(geometry, start, end, products, period_b_start=None, period_b_end=None):
     if not geometry:
         raise ValueError('Draw a polygon on the map first.')
     polygon = shape(geometry)
@@ -34,12 +34,26 @@ def validate_request(geometry, start, end, products):
         raise ValueError('The end date must be after the start date (end date is exclusive).')
     if end > date.today():
         raise ValueError('Choose dates no later than today.')
-    days = int(os.getenv('EO_MAX_DAYS', '90'))
-    if (end - start).days > days:
-        raise ValueError(f'Select a date interval of at most {days} days.')
+    _validate_interval(start, end)
+    if period_b_start is not None or period_b_end is not None:
+        if not period_b_start or not period_b_end:
+            raise ValueError('Provide both dates for period B.')
+        if period_b_start >= period_b_end:
+            raise ValueError('Period B: the end date must be after the start date (end date is exclusive).')
+        if period_b_start < end:
+            raise ValueError('Period B must start on or after the end of period A.')
+        if period_b_end > date.today():
+            raise ValueError('Choose period B dates no later than today.')
+        _validate_interval(period_b_start, period_b_end)
     if not products or any(p not in functions2.PRODUCTS or p == 'sar' for p in products):
         raise ValueError('Select at least one optical product.')
     return polygon
+
+
+def _validate_interval(first, last):
+    days = int(os.getenv('EO_MAX_DAYS', '90'))
+    if (last - first).days > days:
+        raise ValueError(f'Select a date interval of at most {days} days.')
 
 
 def cleanup():
@@ -65,8 +79,11 @@ class Run:
     polygon: object
     start: date
     end: date
-    products: list[str]
+    products: list
+    period_b_start: date = None
+    period_b_end: date = None
     directory: Path = field(default_factory=lambda: ROOT / uuid.uuid4().hex)
+    acquisitions: dict = field(default_factory=dict)
     index: int = 0
     job: object = None
     status: str = 'Waiting'
@@ -74,10 +91,27 @@ class Run:
     errors: dict = field(default_factory=dict)
     canceled: bool = False
     started: float = field(default_factory=time.monotonic)
+    stages: list = field(init=False, repr=False, default=None)
+    periods: dict = field(init=False, repr=False, default=None)
+
+    def __post_init__(self):
+        self.stages = []
+        self.periods = {}
+        for product in self.products:
+            self.stages.append((product, 'A'))
+            self.periods[(product, 'A')] = functions2.Period('A', self.start, self.end, product)
+            if self.period_b_start is not None or self.period_b_end is not None:
+                self.stages.append((product, 'B'))
+                self.periods[(product, 'B')] = functions2.Period('B', self.period_b_start, self.period_b_end, product)
+                self.stages.append((product, 'diff'))
+
+    @property
+    def compare(self):
+        return any(stage[1] != 'A' for stage in self.stages)
 
     @property
     def active(self):
-        return not self.canceled and self.index < len(self.products)
+        return not self.canceled and self.index < len(self.stages)
 
     def cancel(self):
         if self.job is not None:
@@ -94,12 +128,15 @@ class Run:
             self.cancel()
             self.status = 'Stopped after one hour'
             return
-        product = self.products[self.index]
+        product, phase = self.stages[self.index]
+        if phase == 'diff':
+            self._difference(product)
+            return
         if self.job is None:
             try:
-                self.job = functions2.submit_product(connection, product, self.polygon, self.start, self.end)
+                self.job = functions2.submit_period(connection, self.periods[(product, phase)], self.polygon)
             except Exception as exc:
-                self.errors[product] = public_error(exc)
+                self.errors[(product, phase)] = public_error(exc)
                 self.index += 1
                 return
             # Never automatically repeat an uncertain start request.
@@ -113,22 +150,39 @@ class Run:
         except Exception as exc:
             self.status = public_error(exc) + ' Status check will retry; no new job submitted.'
             return
-        self.status = f'{functions2.PRODUCTS[product][0]}: {status}'
+        self.status = f'{functions2.PRODUCTS[product][0]} · period {phase}: {status}'
         if status == 'created':
             self.status += ' · use Cancel and retry if the job does not start'
         if status == 'finished':
             try:
-                result = functions2.collect_product(self.job, product, self.directory)
+                result = functions2.collect_product(self.job, product, self.directory, label=phase)
                 plt.close(result.figure)
                 result.figure = None
-                self.results[product] = result
+                self.results[(product, phase)] = result
             except Exception as exc:
-                self.errors[product] = str(exc) if isinstance(exc, ValueError) else public_error(exc)
+                self.errors[(product, phase)] = str(exc) if isinstance(exc, ValueError) else public_error(exc)
         elif status in ('error', 'canceled'):
-            self.errors[product] = f'Copernicus job {status}. Check your quota or try another area/date range.'
+            self.errors[(product, phase)] = f'Copernicus job {status}. Check your quota or try another area/date range.'
         else:
             return
         self.job = None
+        self.index += 1
+        if not self.active:
+            self.status = 'Finished' if not self.errors else 'Finished with some failed products'
+
+    def _difference(self, product):
+        a = self.results.get((product, 'A'))
+        b = self.results.get((product, 'B'))
+        if a is None or b is None or not a.rasters or not b.rasters:
+            self.errors[(product, 'diff')] = 'Period A or B result is missing, so no difference was computed.'
+        else:
+            try:
+                result = functions2.difference(a.rasters[0], b.rasters[0], product, self.directory)
+                plt.close(result.figure)
+                result.figure = None
+                self.results[(product, 'diff')] = result
+            except Exception as exc:
+                self.errors[(product, 'diff')] = str(exc) if isinstance(exc, ValueError) else public_error(exc)
         self.index += 1
         if not self.active:
             self.status = 'Finished' if not self.errors else 'Finished with some failed products'
